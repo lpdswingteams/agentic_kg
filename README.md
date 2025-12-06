@@ -1,6 +1,6 @@
-# Agentic Knowledge Governance (LangChain >0.3)
+# Agentic Knowledge Governance (LangChain ≥1.0)
 
-一个最小可运行的示例，用于基于 LangChain >0.3 构建“agentic”知识治理智能体：
+一个最小可运行的示例，用于基于 LangChain 1.x 构建“agentic”知识治理智能体：
 
 - 通过规划型 Agent 自主决策：根据文件与问题列表选择切片策略与评估关注点（使用 `langchain.agents.create_agent` 的最新接口）。
 - 自动检测文档结构，生成多种切片方案（字符、递归、语义）。

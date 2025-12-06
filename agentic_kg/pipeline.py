@@ -1,4 +1,4 @@
-"""Agentic knowledge governance pipeline using LangChain 0.3+ primitives."""
+"""Agentic knowledge governance pipeline using LangChain 1.x primitives."""
 from __future__ import annotations
 
 import itertools
