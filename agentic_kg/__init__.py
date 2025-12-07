@@ -1,4 +1,4 @@
-"""Agentic knowledge governance utilities built on LangChain 1.x."""
+"""Agentic knowledge governance utilities built on LangChain 1.0.x."""
 
 from .agent import AgenticGovernanceAgent
 from .pipeline import AgenticGovernancePipeline, PipelineConfig

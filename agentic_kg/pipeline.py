@@ -1,4 +1,4 @@
-"""Agentic knowledge governance pipeline using LangChain 1.x primitives."""
+"""Agentic knowledge governance pipeline using LangChain 1.0.x primitives."""
 from __future__ import annotations
 
 import itertools
@@ -6,17 +6,10 @@ import os
 from dataclasses import dataclass
 from typing import Callable, Dict, Iterable, List, Optional
 
+import numpy as np
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
-from langchain_community.document_loaders import (
-    PyPDFLoader,
-    TextLoader,
-    UnstructuredFileLoader,
-)
-from langchain_core.document_loaders import BaseLoader
-from langchain_community.vectorstores import FAISS
-from langchain_core.retrievers import BaseRetriever
-from langchain_core.vectorstores import VectorStore
+from pypdf import PdfReader
 
 from .report import GovernanceReport, RetrievalEvaluation
 from .strategies import ChunkingStrategyConfig, build_default_strategies, summarize_chunks
@@ -36,7 +29,7 @@ class AgenticGovernancePipeline:
     def __init__(
         self,
         config: PipelineConfig,
-        loaders: Optional[Dict[str, Callable[[str], BaseLoader]]] = None,
+        loaders: Optional[Dict[str, Callable[[str], List[Document]]]] = None,
         strategies: Optional[List[ChunkingStrategyConfig]] = None,
     ) -> None:
         self.config = config
@@ -47,16 +40,17 @@ class AgenticGovernancePipeline:
         documents: List[Document] = []
         for path in file_paths:
             ext = os.path.splitext(path)[1].lower()
-            loader_factory = self.loaders.get(ext)
-            if loader_factory:
-                docs = loader_factory(path).load()
-            elif ext == ".pdf":
-                docs = PyPDFLoader(path).load()
+            loader = self.loaders.get(ext)
+            if loader:
+                documents.extend(loader(path))
+                continue
+
+            if ext == ".pdf":
+                documents.extend(_load_pdf(path))
             elif ext in {".md", ".txt"}:
-                docs = TextLoader(path, encoding="utf-8").load()
+                documents.extend(_load_text(path))
             else:
-                docs = UnstructuredFileLoader(path).load()
-            documents.extend(docs)
+                documents.extend(_load_unstructured(path))
         return documents
 
     def _ensure_strategies(self, documents: Iterable[Document]) -> List[ChunkingStrategyConfig]:
@@ -67,9 +61,6 @@ class AgenticGovernancePipeline:
             )
         return self._strategies
 
-    def _build_vector_store(self, chunks: List[Document]) -> VectorStore:
-        return FAISS.from_documents(chunks, self.config.embedding_model)
-
     def _evaluate_strategy(
         self,
         strategy: ChunkingStrategyConfig,
@@ -77,12 +68,18 @@ class AgenticGovernancePipeline:
         questions: List[str],
     ) -> RetrievalEvaluation:
         chunks = strategy.split(documents)
-        store = self._build_vector_store(chunks)
-        retriever: BaseRetriever = store.as_retriever(search_kwargs={"k": self.config.top_k})
+        chunk_embeddings = self.config.embedding_model.embed_documents(
+            [c.page_content for c in chunks]
+        )
 
         question_results = []
         for question in questions:
-            hits = retriever.invoke(question)
+            hits = _top_k_similar(
+                chunks,
+                chunk_embeddings,
+                self.config.embedding_model.embed_query(question),
+                k=self.config.top_k,
+            )
             coverage = _lexical_coverage(question, hits)
             question_results.append({
                 "question": question,
@@ -135,3 +132,68 @@ def _lexical_coverage(question: str, hits: List[Document]) -> float:
     )
     overlap = tokens.intersection(hit_tokens)
     return len(overlap) / len(tokens)
+
+
+def _load_pdf(path: str) -> List[Document]:
+    reader = PdfReader(path)
+    documents: List[Document] = []
+    for idx, page in enumerate(reader.pages, start=1):
+        text = page.extract_text() or ""
+        documents.append(
+            Document(page_content=text, metadata={"source": path, "page": idx})
+        )
+    return documents
+
+
+def _load_text(path: str) -> List[Document]:
+    with open(path, "r", encoding="utf-8") as f:
+        content = f.read()
+    return [Document(page_content=content, metadata={"source": path})]
+
+
+def _load_unstructured(path: str) -> List[Document]:
+    try:
+        from unstructured.partition.auto import partition
+
+        elements = partition(filename=path)
+    except Exception:  # noqa: BLE001
+        return [
+            Document(
+                page_content=f"无法解析文件 {path}",
+                metadata={"source": path, "error": "parse_failed"},
+            )
+        ]
+
+    documents: List[Document] = []
+    for idx, element in enumerate(elements, start=1):
+        text = getattr(element, "text", "")
+        if text:
+            documents.append(
+                Document(
+                    page_content=text,
+                    metadata={"source": path, "chunk": idx},
+                )
+            )
+    if not documents:
+        documents.append(
+            Document(page_content="未从文件中提取到文本", metadata={"source": path})
+        )
+    return documents
+
+
+def _top_k_similar(
+    chunks: List[Document],
+    chunk_embeddings: List[List[float]],
+    query_embedding: List[float],
+    k: int,
+) -> List[Document]:
+    if not chunks:
+        return []
+    vectors = np.array(chunk_embeddings, dtype=float)
+    query_vec = np.array(query_embedding, dtype=float)
+    if vectors.ndim != 2:
+        return []
+    denom = np.linalg.norm(vectors, axis=1) * (np.linalg.norm(query_vec) + 1e-8)
+    scores = vectors.dot(query_vec) / (denom + 1e-8)
+    top_indices = scores.argsort()[-k:][::-1]
+    return [chunks[i] for i in top_indices]

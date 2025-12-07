@@ -1,6 +1,6 @@
 # Agentic Knowledge Governance (LangChain ≥1.0)
 
-一个最小可运行的示例，用于基于 LangChain 1.x 构建“agentic”知识治理智能体：
+一个最小可运行的示例，用于基于 LangChain 1.0.x 构建“agentic”知识治理智能体：
 
 - 通过规划型 Agent 自主决策：根据文件与问题列表选择切片策略与评估关注点（使用 `langchain.agents.create_agent` 的最新接口）。
 - 自动检测文档结构，生成多种切片方案（字符、递归、语义）。
@@ -14,6 +14,7 @@
 pip install -r requirements.txt
 ```
 
+> 核心依赖已锁定在 LangChain 1.0.x 版本（`<1.1`），并配套使用与之兼容的 text-splitters 版本；如需语义切分可额外安装 `langchain-experimental` 与其兼容版本，请勿升级到 1.1+ 以免破坏接口兼容性。
 > 默认示例使用 `FakeEmbeddings`，生产环境请替换为 OpenAI、bge、GTE 等真实 embedding 模型。
 > 工具基于 `langchain_core.tools.tool` 声明，并通过 `create_agent` 自动挂载，可根据业务问题列表动态决策策略。
 

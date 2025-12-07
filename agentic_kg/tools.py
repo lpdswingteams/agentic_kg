@@ -4,7 +4,6 @@ from __future__ import annotations
 import os
 from typing import List
 
-from langchain_community.document_loaders import PyPDFLoader, UnstructuredFileLoader
 from langchain_core.tools import tool
 
 
@@ -13,9 +12,10 @@ def extract_pdf_text(file_path: str) -> str:
     """Read a PDF file and return a compact text preview for planning."""
     if not os.path.exists(file_path):
         return f"文件不存在: {file_path}"
-    loader = PyPDFLoader(file_path)
-    docs = loader.load()
-    combined = "\n".join(doc.page_content for doc in docs)
+    from pypdf import PdfReader
+
+    reader = PdfReader(file_path)
+    combined = "\n".join((page.extract_text() or "") for page in reader.pages)
     snippet = combined[:1200]
     if len(combined) > len(snippet):
         snippet += "…"
@@ -74,7 +74,18 @@ def sniff_unstructured_text(file_path: str) -> str:
     """Parse a general file with Unstructured loader to preview text."""
     if not os.path.exists(file_path):
         return f"文件不存在: {file_path}"
-    loader = UnstructuredFileLoader(file_path)
-    docs = loader.load()
-    preview = "\n".join(doc.page_content for doc in docs)
+    try:
+        from unstructured.partition.auto import partition
+
+        elements = partition(filename=file_path)
+    except Exception as exc:  # noqa: BLE001
+        return f"预览失败: {exc}"
+
+    preview_parts = []
+    for element in elements:
+        text = getattr(element, "text", "")
+        if text:
+            preview_parts.append(text)
+
+    preview = "\n".join(preview_parts)
     return preview[:1200] + ("…" if len(preview) > 1200 else "")

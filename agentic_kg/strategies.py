@@ -10,9 +10,9 @@ from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_text_splitters import (
     CharacterTextSplitter,
+    MarkdownHeaderTextSplitter,
     RecursiveCharacterTextSplitter,
 )
-from langchain_experimental.text_splitter import SemanticChunker
 
 
 @dataclass
@@ -63,14 +63,12 @@ def build_default_strategies(
         return RecursiveCharacterTextSplitter(
             chunk_size=1200,
             chunk_overlap=200,
-            separators=["\n## ", "\n# ", "\n\n", "\n", " "]
+            separators=["\n## ", "\n# ", "\n\n", "\n", " "],
         )
 
-    def semantic_splitter(_: Iterable[Document]):
-        return SemanticChunker(
-            embedding_model,
-            breakpoint_threshold_type="standard_deviation",
-            buffer_size=2,
+    def markdown_splitter(_: Iterable[Document]):
+        return MarkdownHeaderTextSplitter(
+            headers_to_split_on=[("#", "h1"), ("##", "h2"), ("###", "h3")]
         )
 
     strategies: List[ChunkingStrategyConfig] = [
@@ -88,13 +86,32 @@ def build_default_strategies(
             hints=["含有章节标题/列表的文档"],
         ),
         ChunkingStrategyConfig(
-            name="semantic",
-            splitter_factory=semantic_splitter,
-            description="Use embeddings to find semantic breakpoints.",
-            weight=1.3,
-            hints=["长段落或主题跨度较大的文本"],
+            name="markdown",
+            splitter_factory=markdown_splitter,
+            description="Split by Markdown headers for structured docs like README/报告。",
+            weight=1.1 if heading_density > 0.05 else 1.0,
+            hints=["Markdown/报告"],
         ),
     ]
+
+    try:
+        from langchain_experimental.text_splitter import SemanticChunker
+
+        strategies.append(
+            ChunkingStrategyConfig(
+                name="semantic",
+                splitter_factory=lambda _: SemanticChunker(
+                    embedding_model,
+                    breakpoint_threshold_type="standard_deviation",
+                    buffer_size=2,
+                ),
+                description="Use embeddings to find semantic breakpoints.",
+                weight=1.3,
+                hints=["长段落或主题跨度较大的文本"],
+            )
+        )
+    except Exception:  # noqa: BLE001
+        pass
 
     return strategies
 
